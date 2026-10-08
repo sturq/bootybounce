@@ -10,7 +10,9 @@ A desktop pet for Windows. A cut-out person stands on your taskbar and loops her
 
 ## Outfits
 
-![Mint in all five outfits](docs/outfits.png)
+| Original | Gym | Denim | Red Dress | Hoodie |
+|:-:|:-:|:-:|:-:|:-:|
+| <img src="docs/outfit-original.gif" height="300" alt="Mint, Original"> | <img src="docs/outfit-gym.gif" height="300" alt="Mint, Gym"> | <img src="docs/outfit-denim.gif" height="300" alt="Mint, Denim"> | <img src="docs/outfit-red-dress.gif" height="300" alt="Mint, Red Dress"> | <img src="docs/outfit-hoodie.gif" height="300" alt="Mint, Hoodie"> |
 
 Original is the cut-out source video. The other four were generated: the outfit changed on one frame with Krea 2 Identity Edit, then Wan 2.2 Animate made her do the same motion in it.
 
