@@ -1,12 +1,18 @@
 # bootybounce
 
-A desktop pet for Windows. A cut-out person stands on your taskbar and loops her animation in the background. Drag her somewhere, let go, and she drops back onto the taskbar.
+A desktop pet for Windows. A cut-out person stands on your taskbar and loops her animation in the background, in the outfit you pick. Drag her somewhere, let go, and she drops back onto the taskbar.
 
 ![bootybounce on a Windows 11 desktop](docs/desktop.gif)
 
 [Full quality video (MP4)](docs/desktop.mp4)
 
 ![Right-click menu](docs/screenshot.png)
+
+## Outfits
+
+![Mint in all five outfits](docs/outfits.png)
+
+Original is the cut-out source video. The other four were generated: the outfit changed on one frame with Krea 2 Identity Edit, then Wan 2.2 Animate made her do the same motion in it.
 
 ## Use
 
@@ -19,7 +25,7 @@ Download `bootybounce-windows.zip` from [Releases](../../releases), unzip it and
 
 Mint is an AI-generated person.
 
-## Add a person
+## Add a person or an outfit
 
 Every person is a folder in `pets/`, with one folder per outfit:
 
@@ -40,6 +46,15 @@ python3 tools/make_pet.py video.mp4 Person/Outfit --comfy http://<comfyui-host>:
 ```
 
 Mint/Original was made with `--caption 380,540 --box 100,380,620,1080 --loop 0,186`: the whole clip forward and back, 13 seconds.
+
+A new outfit for a person who already has a clip takes four more scripts. They talk to ComfyUI (`COMFY=http://host:port`) and work in make_pet.py's work folder of the source clip (`WORK=...`):
+
+1. `tools/outfit_images.py`: the outfit changed on frame 1 with Krea 2 Identity Edit (prompts and seed at the top).
+2. `tools/pose_video.py`: the motion as a DWPose skeleton video plus face crops, 16 fps, 576x768. Once per person.
+3. `tools/wan_animate.py OUTFIT`: Wan 2.2 Animate makes the outfit image do the motion (about 12 minutes on an RX 7900 XT).
+4. `tools/double_fps.py OUTFIT_s4242 film_net_fp16.safetensors`: 16 to 32 fps with FILM.
+
+Then `make_pet.py WORK/wan/OUTFIT_s4242_x2_film_net_fp16.mp4 Mint/OUTFIT --box 0,0,576,768 --loop 0,200` as above.
 
 ## Develop
 

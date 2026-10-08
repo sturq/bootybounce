@@ -11,6 +11,7 @@ hit.json, pet.cfg) and a labelled preview video into the work folder.
 --box      crop around the person in source pixels; default: found from a first pass
 --loop     ping-pong between these two source frames; default: chosen automatically
 --ease-start/--ease-end  ping-pong turns slow down to a stop over this many source frames
+--fps      output rate; a 16 fps clip with --fps 32 gets a flow-interpolated frame between each pair
 """
 import argparse, json, os, subprocess, sys, time, urllib.parse, urllib.request, uuid
 import cv2
@@ -25,6 +26,7 @@ p.add_argument('--box')
 p.add_argument('--loop')
 p.add_argument('--ease-start', type=int, default=4, help='source frames to slow down over before the first turn')
 p.add_argument('--ease-end', type=int, default=8, help='same for the last turn')
+p.add_argument('--fps', type=float, help='play at this rate, in-between frames from optical flow (e.g. 32 for a 16 fps clip)')
 p.add_argument('--model', default='BEN2')
 p.add_argument('--comfy', default='http://127.0.0.1:8188')
 p.add_argument('--work', default=None)
@@ -161,6 +163,7 @@ grey = lambda f: cv2.cvtColor(((f[..., :3] * f[..., 3:] + 0.5 * (1 - f[..., 3:])
 
 def between(k, t):
     """Frame at source time k + t (0 < t < 1), both neighbours warped along the optical flow."""
+    t = float(t)  # a numpy float64 would turn the remap grids into float64, which cv2.remap refuses
     f0, f1 = clean[k], clean[k + 1]
     g0, g1 = grey(f0), grey(f1)
     f01, f10 = dis.calc(g0, g1, None), dis.calc(g1, g0, None)
@@ -173,12 +176,15 @@ def between(k, t):
     return np.dstack([m[..., :3] / np.maximum(m[..., 3:], 1e-4), m[..., 3:]])
 
 
-pos = [float(k) for k in range(a, b + 1)]
+out_fps = args.fps or fps
+s = fps / out_fps  # source frames per output frame
+pos = list(np.arange(a, b + 1e-6, s))
 if pingpong:
-    # over the last n source frames before a turn the speed falls linearly to zero (2n output frames)
+    # over the last n source frames before a turn the speed falls linearly to zero (2n/s output frames)
     na, nb = args.ease_start, args.ease_end
-    pos = [a + na * (i / (2 * na)) ** 2 for i in range(2 * na)] + pos[na:len(pos) - nb] + \
-          [b - nb * (1 - i / (2 * nb)) ** 2 for i in range(2 * nb + 1)]
+    la, lb = round(2 * na / s), round(2 * nb / s)
+    pos = [a + na * (i / la) ** 2 for i in range(la)] + list(np.arange(a + na, b - nb - 1e-6, s)) + \
+          [b - nb * (1 - i / lb) ** 2 for i in range(lb + 1)]
 rgba = [clean[int(p)] if p - int(p) < 1e-3 else between(int(p), p - int(p)) for p in pos]
 print('%d source frames, %d with the eased turns' % (b - a + 1, len(rgba)))
 ys, xs = np.nonzero(np.max([f[..., 3] for f in rgba], axis=0) > 0.02)
@@ -202,12 +208,12 @@ for i, f in enumerate(rgba):
     c = max(cv2.findContours(u, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0], key=cv2.contourArea)
     hit.append([int(v) for v in cv2.approxPolyDP(c, 1.5, True).ravel()])
 json.dump(hit, open(f'{out}/hit.json', 'w'), separators=(',', ':'))
-open(f'{out}/pet.cfg', 'w').write('[pet]\nfps=%.3f\npingpong=%s\n' % (fps, 'true' if pingpong else 'false'))
+open(f'{out}/pet.cfg', 'w').write('[pet]\nfps=%.3f\npingpong=%s\n' % (out_fps, 'true' if pingpong else 'false'))
 order = list(range(n)) + (list(range(n - 2, 0, -1)) if pingpong else [])
 small = [cv2.resize(f, (64, 96), interpolation=cv2.INTER_AREA) for f in rgba]
 steps = [np.sqrt(((small[order[t]] - small[order[(t + 1) % len(order)]]) ** 2).mean()) for t in range(len(order))]
 print('%s: %d frames %dx%d, loop %.2f s, step median %.4f max %.4f' % (
-    out, n, cx1 - cx0, cy1 - cy0, len(order) / fps, np.median(steps), max(steps)))
+    out, n, cx1 - cx0, cy1 - cy0, len(order) / out_fps, np.median(steps), max(steps)))
 
 pv = f'{W}/preview'
 os.makedirs(pv, exist_ok=True)
@@ -221,7 +227,7 @@ for t, i in enumerate(order * 2):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (60, 60, 230), 2)
         tiles.append(tile)
     cv2.imwrite(f'{pv}/%04d.png' % t, np.hstack(tiles))
-subprocess.run([FF, '-v', 'error', '-y', '-framerate', '%.5f' % fps, '-i', f'{pv}/%04d.png', '-vf',
+subprocess.run([FF, '-v', 'error', '-y', '-framerate', '%.5f' % out_fps, '-i', f'{pv}/%04d.png', '-vf',
                 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p',
                 f'{W}/{tag}_preview_2loops.mp4'], check=True)
 print('preview', f'{W}/{tag}_preview_2loops.mp4')
