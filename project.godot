@@ -1,0 +1,27 @@
+; Engine configuration file.
+
+config_version=5
+
+[application]
+
+config/name="bootybounce"
+run/main_scene="res://main.tscn"
+run/max_fps=30
+config/features=PackedStringArray("4.7")
+
+[display]
+
+window/size/viewport_width=166
+window/size/viewport_height=360
+window/size/resizable=false
+window/size/borderless=true
+window/size/always_on_top=true
+window/size/transparent=true
+window/per_pixel_transparency/allowed=true
+window/subwindows/embed_subwindows=false
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+viewport/transparent_background=true

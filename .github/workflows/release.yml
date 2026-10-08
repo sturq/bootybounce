@@ -1,0 +1,45 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    env:
+      GODOT: 4.7-stable
+    steps:
+      - uses: actions/checkout@v5
+      - name: Godot and the Windows export template
+        run: |
+          base=https://github.com/godotengine/godot/releases/download/$GODOT
+          curl -sSLO $base/Godot_v${GODOT}_linux.x86_64.zip
+          unzip -q Godot_v${GODOT}_linux.x86_64.zip && mv Godot_v${GODOT}_linux.x86_64 godot
+          curl -sSLO $base/Godot_v${GODOT}_export_templates.tpz
+          dir=~/.local/share/godot/export_templates/${GODOT/-/.}
+          mkdir -p $dir
+          unzip -q -j Godot_v${GODOT}_export_templates.tpz templates/windows_release_x86_64.exe templates/version.txt -d $dir
+      - name: Test pets
+        run: |
+          ./godot --headless --path . --import > /dev/null 2>&1 || true
+          ./godot --headless --path . --script res://test.gd
+      - name: Export
+        run: |
+          mkdir -p build/bootybounce
+          ./godot --headless --path . --export-release Windows build/bootybounce/bootybounce.exe
+          cp -r pets build/bootybounce/ && rm build/bootybounce/pets/.gdignore
+          cd build && zip -qr bootybounce-windows.zip bootybounce
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bootybounce-windows
+          path: build/bootybounce-windows.zip
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" build/bootybounce-windows.zip --title "$GITHUB_REF_NAME" --notes "Unzip and run bootybounce.exe. Keep the pets folder next to it."
