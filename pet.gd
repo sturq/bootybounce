@@ -1,6 +1,6 @@
 extends Node2D
 # Desktop pet: a borderless, transparent window that plays a person loop on top of the taskbar.
-# Pets are folders in pets/ (next to the exe, or in the project when run from the editor).
+# Pets live in pets/<Person>/<Outfit>/ (next to the exe, or in the project when run from the editor).
 
 const SIZES := {"Small": 240, "Medium": 360, "Large": 520}
 const GRAVITY := 3000.0
@@ -8,6 +8,7 @@ const SETTINGS := "user://settings.cfg"
 
 var pets_dir := ""
 var pet_name := ""
+var outfit := ""
 var size_name := "Medium"
 var frames: Array[ImageTexture] = []
 var polys: Array[PackedVector2Array] = []
@@ -40,6 +41,9 @@ func _ready() -> void:
 	pet_name = args.get("pet", cfg.get_value("pet", "name", names[0]))
 	if pet_name not in names:
 		pet_name = names[0]
+	outfit = args.get("outfit", cfg.get_value("pet", "outfit", ""))
+	if outfit not in list_outfits(pets_dir.path_join(pet_name)):
+		outfit = list_outfits(pets_dir.path_join(pet_name))[0]
 	size_name = args.get("size", cfg.get_value("pet", "size", size_name))
 	if size_name not in SIZES:
 		size_name = "Medium"
@@ -50,7 +54,7 @@ func _ready() -> void:
 	menu = PopupMenu.new()
 	add_child(menu)
 	menu.id_pressed.connect(_on_menu)
-	load_pet(pets_dir.path_join(pet_name), SIZES[size_name])
+	load_pet(pets_dir.path_join(pet_name).path_join(outfit), SIZES[size_name])
 	var r := usable_rect()
 	get_window().position = Vector2i(clampi(cfg.get_value("pet", "x", r.end.x - get_window().size.x - 40),
 		r.position.x, r.end.x - get_window().size.x), floor_y())
@@ -61,7 +65,15 @@ func _ready() -> void:
 static func list_pets(dir: String) -> PackedStringArray:
 	var out := PackedStringArray()
 	for d in DirAccess.get_directories_at(dir):
-		if FileAccess.file_exists(dir.path_join(d).path_join("pet.cfg")):
+		if not list_outfits(dir.path_join(d)).is_empty():
+			out.append(d)
+	return out
+
+
+static func list_outfits(person_dir: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	for d in DirAccess.get_directories_at(person_dir):
+		if FileAccess.file_exists(person_dir.path_join(d).path_join("pet.cfg")):
 			out.append(d)
 	return out
 
@@ -151,6 +163,11 @@ func build_menu() -> void:
 		menu.add_radio_check_item(names[k], k)
 		menu.set_item_checked(menu.item_count - 1, names[k] == pet_name)
 	menu.add_separator()
+	var outfits := list_outfits(pets_dir.path_join(pet_name))
+	for k in outfits.size():
+		menu.add_radio_check_item(outfits[k], 400 + k)
+		menu.set_item_checked(menu.item_count - 1, outfits[k] == outfit)
+	menu.add_separator()
 	var id := 100
 	for s in SIZES:
 		menu.add_radio_check_item(s, id)
@@ -163,8 +180,12 @@ func build_menu() -> void:
 
 
 func _on_menu(id: int) -> void:
-	if id < 100:
+	if id >= 400:
+		outfit = list_outfits(pets_dir.path_join(pet_name))[id - 400]
+	elif id < 100:
 		pet_name = list_pets(pets_dir)[id]
+		if outfit not in list_outfits(pets_dir.path_join(pet_name)):
+			outfit = list_outfits(pets_dir.path_join(pet_name))[0]
 	elif id < 200:
 		size_name = SIZES.keys()[id - 100]
 	elif id == 200:
@@ -173,10 +194,10 @@ func _on_menu(id: int) -> void:
 		save()
 		get_tree().quit()
 		return
-	if id < 200:
+	if id < 200 or id >= 400:
 		var w := get_window()
 		var bottom := w.position.y + w.size.y
-		load_pet(pets_dir.path_join(pet_name), SIZES[size_name])
+		load_pet(pets_dir.path_join(pet_name).path_join(outfit), SIZES[size_name])
 		w.position = Vector2i(w.position.x, bottom - w.size.y)
 	save()
 
@@ -184,13 +205,14 @@ func _on_menu(id: int) -> void:
 func save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("pet", "name", pet_name)
+	cfg.set_value("pet", "outfit", outfit)
 	cfg.set_value("pet", "size", size_name)
 	cfg.set_value("pet", "on_top", get_window().always_on_top)
 	cfg.set_value("pet", "x", get_window().position.x)
 	cfg.save(SETTINGS)
 
 
-# Agent hook: --shot=PATH [--frame=N] saves what the window shows (with alpha) and quits.
+# Agent hook: --shot=PATH [--frame=N] [--pet=X] [--outfit=Y] [--size=Z] saves what the window shows (with alpha) and quits.
 func shoot() -> void:
 	set_process(false)
 	var i := int(args.get("frame", "0")) % frames.size()
@@ -198,7 +220,7 @@ func shoot() -> void:
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(args["shot"])
-	print(JSON.stringify({"pet": pet_name, "size": size_name, "frame": i, "frames": frames.size(),
+	print(JSON.stringify({"pet": pet_name, "outfit": outfit, "size": size_name, "frame": i, "frames": frames.size(),
 		"loop": order.size(), "window": [get_window().size.x, get_window().size.y], "feet": feet,
 		"poly_points": polys[i].size()}))
 	get_tree().quit()

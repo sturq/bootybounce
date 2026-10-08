@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Turn a video of a person into a pet folder for bootybounce.
 
-    python3 make_pet.py VIDEO NAME [--caption Y0,Y1] [--box X0,Y0,X1,Y1] [--loop A,B]
+    python3 make_pet.py VIDEO PERSON/OUTFIT [--caption Y0,Y1] [--box X0,Y0,X1,Y1] [--loop A,B]
 
 Needs numpy, opencv-python-headless and imageio-ffmpeg, plus a ComfyUI with the
-ComfyUI-RMBG nodes (BEN2) for the cutout. Writes pets/NAME/ (frames, hit.json,
-pet.cfg) and a labelled preview video into the work folder.
+ComfyUI-RMBG nodes (BEN2) for the cutout. Writes pets/PERSON/OUTFIT/ (frames,
+hit.json, pet.cfg) and a labelled preview video into the work folder.
 
 --caption  rows of a burned-in caption to paint out before cutting (static white text)
 --box      crop around the person in source pixels; default: found from a first pass
 --loop     ping-pong between these two source frames; default: chosen automatically
+--ease-start/--ease-end  ping-pong turns slow down to a stop over this many source frames
 """
 import argparse, json, os, subprocess, sys, time, urllib.parse, urllib.request, uuid
 import cv2
@@ -22,12 +23,15 @@ p.add_argument('name')
 p.add_argument('--caption')
 p.add_argument('--box')
 p.add_argument('--loop')
+p.add_argument('--ease-start', type=int, default=4, help='source frames to slow down over before the first turn')
+p.add_argument('--ease-end', type=int, default=8, help='same for the last turn')
 p.add_argument('--model', default='BEN2')
 p.add_argument('--comfy', default='http://127.0.0.1:8188')
 p.add_argument('--work', default=None)
 p.add_argument('--out', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pets'))
 args = p.parse_args()
-W = args.work or os.path.join(os.path.dirname(os.path.abspath(args.video)), args.name + '-work')
+tag = args.name.replace('/', '_')
+W = args.work or os.path.join(os.path.dirname(os.path.abspath(args.video)), tag + '-work')
 FF = imageio_ffmpeg.get_ffmpeg_exe()
 ints = lambda s: [int(v) for v in s.split(',')]
 
@@ -56,7 +60,7 @@ def cut_out(frames, box, out):
         g = {'1': {'class_type': 'LoadImage', 'inputs': {'image': up}},
              '2': {'class_type': 'RMBG', 'inputs': {'image': ['1', 0], 'model': args.model, **opts}},
              '3': {'class_type': 'MaskToImage', 'inputs': {'mask': ['2', 1]}},
-             '4': {'class_type': 'SaveImage', 'inputs': {'images': ['3', 0], 'filename_prefix': 'bootybounce/' + args.name}}}
+             '4': {'class_type': 'SaveImage', 'inputs': {'images': ['3', 0], 'filename_prefix': 'bootybounce/' + tag}}}
         jobs[json.loads(comfy('/prompt', json.dumps({'prompt': g}).encode()))['prompt_id']] = n
     while jobs:
         time.sleep(2)
@@ -142,14 +146,41 @@ else:
         b = min(range(N // 2, N - 1), key=motion)
 print('loop', 'ping-pong' if pingpong else 'cut', a, b, '%d frames' % (b - a + 1))
 
-# 5. frames, click polygons, preview
-rgba = []
+# 5. frames (ping-pong ends slow down to a stop instead of turning hard), click polygons, preview
+clean = {}
 for k in range(a, b + 1):
     al = np.clip((alpha[k] - 0.04) / 0.92, 0, 1)  # drops the faint haze around the body
     _, lab, st, _ = cv2.connectedComponentsWithStats((al > 0.02).astype(np.uint8))
     body = (lab == 1 + np.argmax(st[1:, 4])).astype(np.uint8)  # stray blobs (lights, old caption) go
     al *= cv2.dilate(body, np.ones((7, 7), np.uint8))
-    rgba.append(np.dstack([blur_fusion(crops[k], al, 61), al]))
+    clean[k] = np.dstack([blur_fusion(crops[k], al, 61), al])
+
+dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+grey = lambda f: cv2.cvtColor(((f[..., :3] * f[..., 3:] + 0.5 * (1 - f[..., 3:])) * 255).astype(np.uint8), cv2.COLOR_BGR2GRAY)
+
+
+def between(k, t):
+    """Frame at source time k + t (0 < t < 1), both neighbours warped along the optical flow."""
+    f0, f1 = clean[k], clean[k + 1]
+    g0, g1 = grey(f0), grey(f1)
+    f01, f10 = dis.calc(g0, g1, None), dis.calc(g1, g0, None)
+    h, w = g0.shape
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    pm = lambda f: np.dstack([f[..., :3] * f[..., 3:], f[..., 3:]])  # premultiplied, so edges blend cleanly
+    w0 = cv2.remap(pm(f0), gx + t * f10[..., 0], gy + t * f10[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    w1 = cv2.remap(pm(f1), gx + (1 - t) * f01[..., 0], gy + (1 - t) * f01[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    m = (1 - t) * w0 + t * w1
+    return np.dstack([m[..., :3] / np.maximum(m[..., 3:], 1e-4), m[..., 3:]])
+
+
+pos = [float(k) for k in range(a, b + 1)]
+if pingpong:
+    # over the last n source frames before a turn the speed falls linearly to zero (2n output frames)
+    na, nb = args.ease_start, args.ease_end
+    pos = [a + na * (i / (2 * na)) ** 2 for i in range(2 * na)] + pos[na:len(pos) - nb] + \
+          [b - nb * (1 - i / (2 * nb)) ** 2 for i in range(2 * nb + 1)]
+rgba = [clean[int(p)] if p - int(p) < 1e-3 else between(int(p), p - int(p)) for p in pos]
+print('%d source frames, %d with the eased turns' % (b - a + 1, len(rgba)))
 ys, xs = np.nonzero(np.max([f[..., 3] for f in rgba], axis=0) > 0.02)
 m = 6
 cy0, cy1, cx0, cx1 = max(ys.min() - m, 0), ys.max() + m + 1, max(xs.min() - m, 0), xs.max() + m + 1
@@ -186,11 +217,11 @@ for t, i in enumerate(order * 2):
     tiles = []
     for bg, label in (((0.14, 0.12, 0.12), 'dark'), ((0.9, 0.93, 0.93), 'light')):
         tile = ((f[..., :3] * A + np.array(bg) * (1 - A)) * 255).astype(np.uint8)
-        cv2.putText(tile, '%s %s %s' % (args.name, 'ping-pong' if pingpong else 'cut', label), (8, 24),
+        cv2.putText(tile, '%s %s %s' % (tag, 'ping-pong' if pingpong else 'cut', label), (8, 24),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (60, 60, 230), 2)
         tiles.append(tile)
     cv2.imwrite(f'{pv}/%04d.png' % t, np.hstack(tiles))
 subprocess.run([FF, '-v', 'error', '-y', '-framerate', '%.5f' % fps, '-i', f'{pv}/%04d.png', '-vf',
                 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p',
-                f'{W}/{args.name}_preview_2loops.mp4'], check=True)
-print('preview', f'{W}/{args.name}_preview_2loops.mp4')
+                f'{W}/{tag}_preview_2loops.mp4'], check=True)
+print('preview', f'{W}/{tag}_preview_2loops.mp4')

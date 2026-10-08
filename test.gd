@@ -11,7 +11,11 @@ func _init() -> void:
 	if names.is_empty():
 		fails += 1
 		printerr("no pets in ", dir)
-	for name in names:
+	var looks := PackedStringArray()
+	for person in names:
+		for outfit in Pet.list_outfits(dir.path_join(person)):
+			looks.append(person.path_join(outfit))
+	for name in looks:
 		var p := Pet.new()
 		p.load_pet(dir.path_join(name), 360)
 		var n := p.frames.size()
