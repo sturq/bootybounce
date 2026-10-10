@@ -2,19 +2,13 @@
 
 A desktop pet for Windows. A cut-out person stands on your taskbar and loops her animation in the background, in the outfit you pick. Drag her somewhere, let go, and she drops back onto the taskbar.
 
-![bootybounce on a Windows 11 desktop](docs/desktop.gif)
-
-[Full quality video (MP4)](docs/desktop.mp4)
-
-![Right-click menu](docs/screenshot.png)
-
 ## Outfits
 
-| Original | Gym | Denim | Red Dress | Hoodie |
-|:-:|:-:|:-:|:-:|:-:|
-| <img src="docs/outfit-original.gif" height="300" alt="Mint, Original"> | <img src="docs/outfit-gym.gif" height="300" alt="Mint, Gym"> | <img src="docs/outfit-denim.gif" height="300" alt="Mint, Denim"> | <img src="docs/outfit-red-dress.gif" height="300" alt="Mint, Red Dress"> | <img src="docs/outfit-hoodie.gif" height="300" alt="Mint, Hoodie"> |
+| Gym | Denim | Red Dress | Hoodie |
+|:-:|:-:|:-:|:-:|
+| <img src="docs/outfit-gym.gif" height="300" alt="Mint, Gym"> | <img src="docs/outfit-denim.gif" height="300" alt="Mint, Denim"> | <img src="docs/outfit-red-dress.gif" height="300" alt="Mint, Red Dress"> | <img src="docs/outfit-hoodie.gif" height="300" alt="Mint, Hoodie"> |
 
-Original is the cut-out source video. The other four were generated: the outfit changed on one frame with Krea 2 Identity Edit, then Wan 2.2 Animate made her do the same motion in it.
+All four were generated from one source clip: the outfit changed on one frame with Krea 2 Identity Edit, then Wan 2.2 Animate made her do the clip's motion in it.
 
 ## Use
 
@@ -47,7 +41,7 @@ pip install numpy opencv-python-headless imageio-ffmpeg
 python3 tools/make_pet.py video.mp4 Person/Outfit --comfy http://<comfyui-host>:8188 [--caption Y0,Y1] [--box X0,Y0,X1,Y1] [--loop A,B]
 ```
 
-Mint/Original was made with `--caption 380,540 --box 100,380,620,1080 --loop 0,186`: the whole clip forward and back, 13 seconds.
+Mint's source clip went through it with `--caption 380,540 --box 100,380,620,1080 --loop 0,186`: the whole clip forward and back, 13 seconds.
 
 A new outfit for a person who already has a clip takes four more scripts. They talk to ComfyUI (`COMFY=http://host:port`) and work in make_pet.py's work folder of the source clip (`WORK=...`):
 
